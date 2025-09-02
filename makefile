@@ -28,22 +28,25 @@ help:
 	@echo "  restart      Restart the service."
 	@echo "  status       Show the service status."
 
-setup-env:
-	@# This target outputs a shell script to be used with eval.
-	@echo "echo '--- Setting up environment variables ---';" \
-		"TOKEN=$$(openssl rand -base64 32 | tr -d '\n');" \
-		"export WQS_SECRET_TOKEN='$$TOKEN';" \
-		"echo '✔ Secret token (WQS_SECRET_TOKEN) generated.';" \
-		"read -p 'Enter Brain Username: ' BRAIN_USERNAME;" \
-		"export BRAIN_USERNAME;" \
-		"read -sp 'Enter Brain Password: ' BRAIN_PASSWORD;" \
-		"export BRAIN_PASSWORD;" \
-		"echo;" \
-		"echo '✔ Brain credentials set for this session.';"
+#setup-env:
+#	@# This target outputs a shell script to be used with eval.
+#	@echo "echo '--- Setting up environment variables ---';" \
+#		"TOKEN=$$(openssl rand -base64 32 | tr -d '\n');" \
+#		"export WQS_SECRET_TOKEN='$$TOKEN';" \
+#		"echo '✔ Secret token (WQS_SECRET_TOKEN) generated.';" \
+#		"read -p 'Enter Brain Username: ' BRAIN_USERNAME;" \
+#		"export BRAIN_USERNAME;" \
+#		"read -sp 'Enter Brain Password: ' BRAIN_PASSWORD;" \
+#		"export BRAIN_PASSWORD;" \
+#		"echo;" \
+#		"echo '✔ Brain credentials set for this session.';"
 
 
 install:
 	@echo "--> Installing application (sudo required)..."
+	@sudo go env -w GOOS="linux"
+	@sudo go build -o $(APP_NAME)
+	@sudo chmod +x $(APP_NAME)
 	@sudo mkdir -p $(INSTALL_DIR)
 	@sudo mkdir -p $(CONFIG_DIR)
 	@sudo cp $(BINARY) $(INSTALL_DIR)/

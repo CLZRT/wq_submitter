@@ -2,7 +2,7 @@
 configs/config.yaml
 log
 json
-
+.idea
 # 忽略文件
 .env
 *.log
