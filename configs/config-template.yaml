@@ -4,6 +4,7 @@ app:
   version: "v1.0.1"
   port: 8080
   run_mod: release
+#  max concurrency in all Idea.
   concurrency: 3
 
 # database
@@ -25,8 +26,9 @@ log:
   save_days: 30
   level: "debug"
 
-# scheduler 每秒检查Idea是否执行完成,完成则删除该IdeaSubmitter
+# scheduler
 scheduler:
+#  每秒检查Idea是否执行完成,完成则删除该IdeaSubmitter
   time_second: 1
 
 
@@ -39,7 +41,7 @@ credential:
 #  你的world-quant密码
   password: "wq_password"
 #  你每次向本服务发送请求时需要带上的token,用于验证身份
-  token: "'fcf#tDbj>{4y$uU+$^V0J$e`+JlJuU;cLm)X0t3$15ncX%5{TJZ]}W$U1pQ*17RhVi%{t|;R7LIiet[njoS%s"
+  token: "your-auth-in-this-service"
 
 
 alpha:
