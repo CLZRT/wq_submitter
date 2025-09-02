@@ -1,0 +1,58 @@
+# app
+app:
+  app_name: "wq_submitter"
+  version: "v1.0.1"
+  port: 8080
+  run_mod: release
+  concurrency: 3
+
+# database
+db:
+  host: "127.0.0.1"
+  port: 3306
+  user: "your_db_username"
+  password: "your_db_password"
+  db_name: "your_db_name"
+  max_idle_conn: 200
+  max_open_conn: 2000
+  max_idle_time: 30
+  slow_threshold_millisecond: 10
+
+# log
+log:
+  log_pattern: "file" #stdout
+  log_path: "./log/server.log"
+  save_days: 30
+  level: "debug"
+
+# scheduler 每秒检查Idea是否执行完成,完成则删除该IdeaSubmitter
+scheduler:
+  time_second: 1
+
+
+
+
+
+credential:
+#  你的world-quant用户名
+  user_name: "xxx@gmail.com"
+#  你的world-quant密码
+  password: "wq_password"
+#  你每次向本服务发送请求时需要带上的token,用于验证身份
+  token: "'fcf#tDbj>{4y$uU+$^V0J$e`+JlJuU;cLm)X0t3$15ncX%5{TJZ]}W$U1pQ*17RhVi%{t|;R7LIiet[njoS%s"
+
+
+alpha:
+#  alpha最大模拟次数
+  retry_num: 10
+#  每个Idea channel 的长度
+  channel_len: 1000
+#  每N秒扫描Idea更新单个Idea并发度
+  scan_idea_second: 5
+
+# 最大重试获取DetailResult次数
+result:
+#  是否 需要保存回测数据
+  need_store_records: true
+#  获取回测数据时最大重试次数
+  max_retry_num: 10
