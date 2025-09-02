@@ -10,7 +10,7 @@
 
 ```Yaml
 Get
-  {Your-Host-Name}/wq_submitter/hello
+  {Your-Host-Name:Your-Port}/wq_submitter/hello
 ```
 
 
@@ -22,7 +22,7 @@ Get
 > 上传AlphaList
 
 ```Yaml
-Upload: Post- {Your-Host-Name}/wq_submitter/alpha/upload
+Upload: Post- {Your-Host-Name:Your-Port}/wq_submitter/alpha/upload
 ```
 
 ```json
@@ -82,7 +82,7 @@ Upload: Post- {Your-Host-Name}/wq_submitter/alpha/upload
 
 ```yaml
 Get
-{Your-Host-Name}/wq_submitter/alpha/list?ideaId=3
+{Your-Host-Name:Your-Port}/wq_submitter/alpha/list?ideaId=3
 ```
 
 
@@ -93,21 +93,21 @@ Get
 
 ```Yaml
 Get
-{Your-Host-Name}/wq_submitter/idea/all
+{Your-Host-Name:Your-Port}/wq_submitter/idea/all
 ```
 
 ### GetRun
 
 ```Yaml
 Get
-{Your-Host-Name}/wq_submitter/idea/run
+{Your-Host-Name:Your-Port}/wq_submitter/idea/run
 ```
 
 ### GetUnFinish
 
 ```Yaml
 Get
-{Your-Host-Name}/wq_submitter/idea/unfinish
+{Your-Host-Name:Your-Port}/wq_submitter/idea/unfinish
 ```
 
 ### Delete-Post
@@ -116,7 +116,7 @@ Get
 
 ```Yaml
 Post
-{Your-Host-Name}/wq_submitter/idea/delete
+{Your-Host-Name:Your-Port}/wq_submitter/idea/delete
 ```
 
 ```json
@@ -131,7 +131,7 @@ Post
 
 ```Yaml
 Post
-{Your-Host-Name}/wq_submitter/idea/concurrenct
+{Your-Host-Name:Your-Port}/wq_submitter/idea/concurrenct
 ```
 
 ```json
