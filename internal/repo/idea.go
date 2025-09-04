@@ -25,6 +25,15 @@ func (ideaRepo *IdeaRepo) Add(_ context.Context, idea *model.Idea) (int64, error
 	}
 	return idea.ID, nil
 }
+func (ideaRepo *IdeaRepo) AddTx(_ context.Context, idea *model.Idea, tx *gorm.DB) (int64, error) {
+
+	result := tx.Create(idea)
+	if result.Error != nil || result.RowsAffected == 0 {
+		log.Errorf("Add Idea Error: %v", result.Error)
+		return -1, result.Error
+	}
+	return idea.ID, nil
+}
 
 func (ideaRepo *IdeaRepo) DeleteById(_ context.Context, id int64) (int64, error) {
 

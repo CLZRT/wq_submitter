@@ -6,6 +6,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
+	
 	"wq_submitter/internal/model"
 	"wq_submitter/internal/repo"
 	"wq_submitter/internal/viewer"
@@ -39,11 +40,53 @@ func UploadAlphaList(alphaViewerList []viewer.Alpha) int64 {
 	log.Infof("UploadAlphaList Success uploadNum: %d", uploadNum)
 	return uploadNum
 }
+func TxUploadAlphaList(alphaViewerList []viewer.Alpha, ideaId int64, tx *gorm.DB) int64 {
+
+	alphaModelList := make([]*model.Alpha, 0)
+
+	for _, alphaViewer := range alphaViewerList {
+
+		alphaModel := model.Alpha{}
+		alphaModel.Alpha = alphaViewer.Alpha
+		alphaModel.IdeaID = ideaId
+		alphaModel.TestPeriod = alphaViewer.TestPeriod
+		alphaModel.SimulationData = datatypes.JSON(alphaViewer.SimulationData)
+		alphaModel.SimulationEnv = datatypes.JSON(alphaViewer.SimulationEnv)
+		alphaModelList = append(alphaModelList, &alphaModel)
+	}
+	uploadNum, err := alphaRepo.AddListTx(context.Background(), alphaModelList, tx)
+	if err != nil {
+		log.Warnf("UploadAlphaList Failed reason: %s", err.Error())
+		return -1
+	}
+	log.Infof("UploadAlphaList Success uploadNum: %d", uploadNum)
+	return uploadNum
+}
 
 //func FindLastAlphaId() int {
 //	repo.
 //}
 
+func TxUploadAlphaListWithIdea(alphaViewerList []viewer.Alpha, idea *viewer.Idea) (ideaId int64, alphaNum int64) {
+
+	db := repo.GetDbCli()
+	tx := db.Begin()
+	tx.Begin()
+	ideaId, err := TxUploadIdea(idea, tx)
+	if err != nil {
+		tx.Rollback()
+		return 0, 0
+	}
+
+	alphaListNum := TxUploadAlphaList(alphaViewerList, ideaId, tx)
+	if alphaListNum <= 0 {
+		tx.Rollback()
+		return 0, 0
+	}
+	tx.Commit()
+	return ideaId, alphaListNum
+
+}
 func FindAlphaListByIdeaId(id int64) ([]viewer.Alpha, error) {
 	alphaModels, err := alphaRepo.FindByIdeaId(context.Background(), id)
 	if err != nil {

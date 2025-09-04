@@ -3,6 +3,7 @@ package svc
 import (
 	"context"
 	log "github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 	"sync"
 	"wq_submitter/internal/model"
 	"wq_submitter/internal/repo"
@@ -31,6 +32,28 @@ func UploadIdea(ideaViewer *viewer.Idea) (ideaId int64, err error) {
 		IsFinished:        0,
 	}
 	ideaId, err = ideaRepo.Add(context.Background(), &ideaModel)
+	if err != nil {
+		log.Error(err.Error())
+		return -1, err
+	}
+
+	return ideaId, nil
+}
+
+func TxUploadIdea(ideaViewer *viewer.Idea, tx *gorm.DB) (ideaId int64, err error) {
+
+	ideaModel := model.Idea{
+		ID:                0,
+		IdeaAlphaTemplate: ideaViewer.IdeaAlphaTemplate,
+		IdeaTitle:         ideaViewer.IdeaTitle,
+		IdeaDesc:          ideaViewer.IdeaDesc,
+		StartIdx:          ideaViewer.StartIdx,
+		EndIdx:            ideaViewer.EndIdx,
+		NextIdx:           ideaViewer.NextIdx,
+		ConcurrencyNum:    ideaViewer.ConcurrencyNum,
+		IsFinished:        0,
+	}
+	ideaId, err = ideaRepo.AddTx(context.Background(), &ideaModel, tx)
 	if err != nil {
 		log.Error(err.Error())
 		return -1, err

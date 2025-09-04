@@ -62,70 +62,54 @@ func UploadAlphaListWithIdea(ctx *gin.Context) {
 	ideaViewer.NextIdx = ideaViewer.StartIdx
 	ideaViewer.ConcurrencyNum = ideaReq.ConcurrencyNum
 
-	ideaId, err := svc.UploadIdea(&ideaViewer)
-	if err != nil {
-		log.Error(err.Error())
-		return
-	}
-	if ideaId <= 0 {
-		log.Errorf("Return InValid IdeaId {%d}", ideaId)
-		return
-	}
+	ideaId, alphaUploadNum := svc.TxUploadAlphaListWithIdea(ConstructAlphaList(alphaRequestList), &ideaViewer)
 
-	log.Infof("UpLoad Idea success, ideaId: {%d}", ideaId)
-
-	// Convert alphaList
-	alphaModelList := make([]viewer.Alpha, 0)
-	for _, alphaRequest := range alphaRequestList {
-
-		// Marshal
-		settingByte, err := json.Marshal(alphaRequest.Settings)
-		if err != nil {
-			log.Error(err.Error())
-			ctx.JSON(http.StatusBadRequest, UploadAlphaListWithIdeaResp{
-				Message:   "Settings Marshal Failed",
-				UploadNum: 0,
-			})
-			return
-		}
-		alphaDataByte, err := json.Marshal(alphaRequest)
-		if err != nil {
-			log.Error(err.Error())
-			ctx.JSON(http.StatusBadRequest, UploadAlphaListWithIdeaResp{
-				Message:   "Request Marshal Failed",
-				UploadNum: 0,
-			})
-			return
-		}
-
-		alphaViewer := viewer.Alpha{
-			SimulationEnv:  settingByte,
-			Alpha:          alphaRequest.Regular,
-			SimulationData: alphaDataByte,
-			IdeaID:         ideaId,
-			TestPeriod:     alphaRequest.Settings.TestPeriod,
-		}
-		alphaModelList = append(alphaModelList, alphaViewer)
-
-	}
-	// Upload alphaList
-	uploadNum := svc.UploadAlphaList(alphaModelList)
-	if uploadNum == -1 {
+	if alphaUploadNum == -1 {
 		ctx.JSON(http.StatusBadGateway, UploadAlphaListWithIdeaResp{
 			Message:   "UpLoad AlphaList Failed",
-			UploadNum: uploadNum,
+			UploadNum: alphaUploadNum,
 			IdeaId:    ideaId,
 		})
 		return
 	} else {
 		ctx.JSON(http.StatusOK, UploadAlphaListWithIdeaResp{
 			Message:   "UpLoad AlphaList Success",
-			UploadNum: uploadNum,
+			UploadNum: alphaUploadNum,
 			IdeaId:    ideaId,
 		})
 		return
 	}
 
+}
+func ConstructAlphaList(alphaListReq []UploadAlphaListReq) []viewer.Alpha {
+
+	// Convert alphaList
+	alphaModelList := make([]viewer.Alpha, 0)
+	for _, alphaRequest := range alphaListReq {
+
+		// Marshal
+		settingByte, err := json.Marshal(alphaRequest.Settings)
+		if err != nil {
+			log.Error(err.Error())
+			return nil
+		}
+		alphaDataByte, err := json.Marshal(alphaRequest)
+		if err != nil {
+			log.Error(err.Error())
+
+			return nil
+		}
+
+		alphaViewer := viewer.Alpha{
+			SimulationEnv:  settingByte,
+			Alpha:          alphaRequest.Regular,
+			SimulationData: alphaDataByte,
+			TestPeriod:     alphaRequest.Settings.TestPeriod,
+		}
+		alphaModelList = append(alphaModelList, alphaViewer)
+
+	}
+	return alphaModelList
 }
 
 func GetAlphaListByIdea(ctx *gin.Context) {

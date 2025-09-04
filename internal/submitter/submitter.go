@@ -70,6 +70,7 @@ type Submitter struct {
 	ScanIdeaSecond   int64
 	AlphaChan        SafeChan
 	DeadChan         SafeChan
+	RetryChan        SafeChan
 	FinishChan       SafeChan
 	FinishAlphaIdMap map[int64]struct{}
 	ConcurrencyNum   int64
@@ -99,6 +100,7 @@ func NewSubmitter(ctx context.Context, cancelFunc context.CancelFunc, idea viewe
 		AlphaChan:        NewSafeChan(channelLen),
 		DeadChan:         NewSafeChan(channelLen),
 		FinishChan:       NewSafeChan(channelLen),
+		RetryChan:        NewSafeChan(channelLen),
 		FinishAlphaIdMap: make(map[int64]struct{}),
 		ConcurrencyNum:   idea.ConcurrencyNum,
 		Idea:             idea,
@@ -155,6 +157,7 @@ func (s *Submitter) Stop() error {
 	s.AlphaChan.Close()
 	s.DeadChan.Close()
 	s.FinishChan.Close()
+	s.RetryChan.Close()
 	err := s.WorkerPool.Release()
 	if err != nil {
 		err = fmt.Errorf("fail to close worker pool: %s", err.Error())
@@ -210,7 +213,7 @@ func (s *Submitter) retryAlpha() {
 			continue
 		}
 		// 	未超过最大重试次数
-		s.AlphaChan.Write(alphaTask)
+		s.RetryChan.Write(alphaTask)
 	}
 
 }
@@ -283,28 +286,34 @@ func (s *Submitter) executeAlpha(ctx context.Context) {
 	brainSvc := svc.NewBrainService()
 	for {
 		select {
+		case retryTask := <-s.RetryChan.GetReadChan():
+			s.executeTask(retryTask, brainSvc)
 		case alphaTask := <-s.AlphaChan.GetReadChan():
-			// 提交
-			var brainSvcAlpha svc.BrainServiceAlpha
-			brainSvcAlpha.Id = alphaTask.ID
-			brainSvcAlpha.IdeaId = alphaTask.IdeaID
-			brainSvcAlpha.SimulationData = string(alphaTask.SimulationData)
-			err := brainSvc.SimulateAndStoreResult(brainSvcAlpha)
-
-			if err != nil {
-				log.Errorf("IdeaId: %d BrainServiceAlpha task %d simulation failed: %v", alphaTask.IdeaID, alphaTask.ID, err)
-				s.DeadChan.Write(alphaTask)
-				continue
-			}
-			// 提交成功
-			alphaTask.Status = constant.Submitted
-			s.FinishChan.Write(alphaTask)
+			s.executeTask(alphaTask, brainSvc)
 		case <-ctx.Done():
 			return
 
 		}
 
 	}
+
+}
+func (s *Submitter) executeTask(task AlphaTask, brainSvc *svc.BrainService) {
+	// 提交
+	var brainSvcAlpha svc.BrainServiceAlpha
+	brainSvcAlpha.Id = task.ID
+	brainSvcAlpha.IdeaId = task.IdeaID
+	brainSvcAlpha.SimulationData = string(task.SimulationData)
+	err := brainSvc.SimulateAndStoreResult(brainSvcAlpha)
+
+	if err != nil {
+		log.Errorf("IdeaId: %d BrainServiceAlpha task %d simulation failed: %v", task.IdeaID, task.ID, err)
+		s.DeadChan.Write(task)
+		return
+	}
+	// 提交成功
+	task.Status = constant.Submitted
+	s.FinishChan.Write(task)
 
 }
 

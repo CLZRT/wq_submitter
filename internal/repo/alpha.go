@@ -44,6 +44,25 @@ func (alphaRepo *AlphaRepo) AddList(_ context.Context, alphaList []*model.Alpha)
 	return result.RowsAffected, nil
 }
 
+func (alphaRepo *AlphaRepo) AddListTx(_ context.Context, alphaList []*model.Alpha, tx *gorm.DB) (int64, error) {
+	listLen := len(alphaList)
+	if listLen == 0 {
+		return 0, nil
+	}
+
+	result := tx.CreateInBatches(alphaList, 1000)
+	if result.Error != nil {
+		log.Errorf("failed to add alpha list: %v", result.Error)
+		return 0, result.Error
+	}
+	if result.RowsAffected < int64(listLen) {
+		err := fmt.Errorf("expected to insert %d records, but only inserted %d", listLen, result.RowsAffected)
+		log.Error(err)
+		return result.RowsAffected, err
+	}
+	return result.RowsAffected, nil
+}
+
 func (alphaRepo *AlphaRepo) DeleteById(_ context.Context, alphaId int64) (bool, error) {
 	result := db.Delete(&model.Alpha{}, alphaId)
 	if result.Error != nil {
