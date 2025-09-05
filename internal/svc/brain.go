@@ -27,7 +27,7 @@ type BrainServiceAlpha struct {
 	SimulationData string
 }
 type BrainServiceRespContainer struct {
-	resp *http.Response
+	resp http.Response
 }
 type BrainServiceRetryResp struct {
 	Id       string `json:"id"`
@@ -112,6 +112,11 @@ func (brainSvc *BrainService) simulate(alphaDataStr string) (*http.Response, err
 
 	// 发送请求 (httpClient 会自动附加 cookie)
 	resp, err := brainSvc.brainAuth.HttpClient.Do(req)
+	defer func(resp *http.Response) {
+		if resp != nil {
+			resp.Body.Close()
+		}
+	}(resp)
 	if err != nil {
 		log.Errorf("simulate Request failed: %s", err.Error())
 		return nil, err
@@ -153,13 +158,8 @@ func (brainSvc *BrainService) confirmResult(resp *http.Response) error {
 		return err
 	}
 
-	// 构建接收体
-	respCap := &BrainServiceRespContainer{
-		resp: &http.Response{},
-	}
-
 	// 发送请求
-	_, err = brainSvc.retryGetBasic(req, respCap, retrySecond)
+	_, err = brainSvc.retryGetBasic(req, retrySecond)
 	if err != nil {
 		log.Errorf("ConfirmResult failed with message: %s", err.Error())
 		return err
@@ -183,28 +183,18 @@ func (brainSvc *BrainService) getResults(alpha BrainServiceAlpha, resp *http.Res
 		return nil, err
 	}
 
-	// 构建接收体
-	respCap := &BrainServiceRespContainer{
-		resp: &http.Response{},
-	}
 	// 发送请求 (httpClient 会自动附加 cookie)
-	originalResult, err := brainSvc.retryGetBasic(req, respCap, retrySecond)
+	originalResult, err := brainSvc.retryGetBasic(req, retrySecond)
 
 	if err != nil {
 		log.Errorf("GetResult Request failed: %s", err.Error())
 		return nil, err
 	}
 	alphaCode := originalResult.Alpha
-	// 读取响应体
-	body, err := io.ReadAll(respCap.resp.Body)
-	// 检查读取状态
-	if err != nil {
-		log.Errorf("GetResult 读取响应体失败: %s", err.Error())
-		return nil, err
-	}
+
 	// 检查返回结果
-	if respCap.resp.StatusCode >= 400 {
-		err := fmt.Errorf("get result failed %d, message: %s", respCap.resp.StatusCode, string(body))
+	if originalResult.Status != constant.StatusComplete {
+		err := fmt.Errorf("get result failed %s, message: %s", originalResult.Status, originalResult.Message)
 		log.Error(err.Error())
 		return nil, err
 	}
@@ -351,13 +341,20 @@ func (brainSvc *BrainService) getDetailResultList(alphaCode string) map[string]*
 	return detailMap
 }
 
-func (brainSvc *BrainService) retryGetBasic(req *http.Request, respCap *BrainServiceRespContainer, retrySecond float64) (*BrainServiceRetryResp, error) {
+func (brainSvc *BrainService) retryGetBasic(req *http.Request, retrySecond float64) (*BrainServiceRetryResp, error) {
 
 	retryTicker := time.NewTicker(time.Duration(retrySecond) * time.Second)
 	defer retryTicker.Stop()
 	//到时间就重试
+	var resp *http.Response
+	defer func() {
+		if resp != nil {
+			resp.Body.Close()
+		}
+	}()
+	var err error
 	for range retryTicker.C {
-		resp, err := brainSvc.brainAuth.HttpClient.Do(req)
+		resp, err = brainSvc.brainAuth.HttpClient.Do(req)
 		if err != nil {
 			log.Errorf("retryGetBasic Request failed: %s", err.Error())
 			return nil, err
@@ -383,7 +380,6 @@ func (brainSvc *BrainService) retryGetBasic(req *http.Request, respCap *BrainSer
 		if respData.Status != "" {
 
 			if respData.Status == constant.StatusComplete {
-				respCap.resp = resp
 				return &respData, nil
 			}
 
@@ -394,7 +390,7 @@ func (brainSvc *BrainService) retryGetBasic(req *http.Request, respCap *BrainSer
 		}
 
 	}
-	return nil, fmt.Errorf("can't Get Result in httpCode: %d", respCap.resp.StatusCode)
+	return nil, fmt.Errorf("can't Get Result")
 }
 func (brainSvc *BrainService) getDetailResult(alphaCode string, detailName string) (result *[]byte) {
 	maxTimes := conf.ResultConfig.MaxRetryNum

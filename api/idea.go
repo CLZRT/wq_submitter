@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/gin-gonic/gin"
 	log "github.com/sirupsen/logrus"
 	"net/http"
@@ -60,10 +61,14 @@ func UpdateIdeaConcurrency(ctx *gin.Context) {
 	var ideaRequest UpdateIdeaReq
 	err := ctx.ShouldBind(&ideaRequest)
 	if err != nil {
+		ideaId, _ := ctx.Get("id")
+		num, _ := ctx.Get("num")
+		params := fmt.Sprintf("ideaId: %s - concurrencyNum: %s", ideaId.(string), num.(string))
+		log.Errorf("UpdateIdea Error:%s,\n Param:%s \n", err.Error(), params)
 		ctx.JSON(http.StatusBadRequest, UpdateIdeaResp{
 			Message:        "Param Error",
-			IdeaId:         -1,
-			ConcurrencyNum: -1,
+			IdeaId:         ideaId.(int64),
+			ConcurrencyNum: num.(int64),
 		})
 		return
 	}

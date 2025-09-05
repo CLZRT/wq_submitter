@@ -209,6 +209,7 @@ func (s *Submitter) retryAlpha() {
 		alphaTask.RetryNum++
 		// 超过最大重试次数
 		if alphaTask.RetryNum > config.AlphaConfig.RetryNum {
+			alphaTask.Status = constant.SubmitFailed
 			s.FinishChan.Write(alphaTask)
 			continue
 		}
