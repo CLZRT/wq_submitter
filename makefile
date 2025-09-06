@@ -45,8 +45,8 @@ help:
 install:
 	@echo "--> Installing application (sudo required)..."
 	@sudo go env -w GOOS="linux"
-	@sudo go build -o $(APP_NAME)
-	@sudo chmod +x $(APP_NAME)
+	@sudo go build -o ./$(APP_NAME)
+	@sudo chmod +x ./$(APP_NAME)
 	@sudo mkdir -p $(INSTALL_DIR)
 	@sudo mkdir -p $(CONFIG_DIR)
 	@sudo cp $(BINARY) $(INSTALL_DIR)/
