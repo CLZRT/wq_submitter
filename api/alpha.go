@@ -17,9 +17,14 @@ func Hello(ctx *gin.Context) {
 
 func UploadAlphaListWithIdea(ctx *gin.Context) {
 	//todo 上传Idea及其AlphaList
+	log.Info("request into UploadAlphaListWithIdea")
+
 	alphaIdeaRequest := UploadAlphaListWithIdeaReq{}
-	err := ctx.ShouldBind(&alphaIdeaRequest)
+
+	err := ctx.ShouldBindJSON(&alphaIdeaRequest)
+	log.Infof("%+v", alphaIdeaRequest)
 	if err != nil {
+		log.Info("bind json err:", err)
 		log.Error(err.Error())
 		ctx.JSON(http.StatusBadRequest, UploadAlphaListWithIdeaResp{
 			Message:   err.Error(),

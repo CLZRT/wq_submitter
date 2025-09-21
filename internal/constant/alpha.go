@@ -9,4 +9,5 @@ const (
 
 	StatusError    = "ERROR"
 	StatusComplete = "COMPLETE"
+	StatusWarning  = "WARNING"
 )

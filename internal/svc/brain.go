@@ -341,7 +341,7 @@ func (brainSvc *BrainService) getDetailResultList(alphaCode string) map[string]*
 	return detailMap
 }
 
-func (brainSvc *BrainService) retryGetBasic(req *http.Request, retrySecond float64) (*BrainServiceRetryResp, error) {
+func (brainSvc *BrainService) retryGetBasic(req *http.Request, retrySecond float64) (result *BrainServiceRetryResp, err error) {
 
 	retryTicker := time.NewTicker(time.Duration(retrySecond) * time.Second)
 	defer retryTicker.Stop()
@@ -350,42 +350,60 @@ func (brainSvc *BrainService) retryGetBasic(req *http.Request, retrySecond float
 	defer func() {
 		if resp != nil {
 			resp.Body.Close()
+
+		}
+		if err != nil {
+			time.Sleep(10 * time.Second)
 		}
 	}()
-	var err error
 	for range retryTicker.C {
 		resp, err = brainSvc.brainAuth.HttpClient.Do(req)
+		//请求建立过程有问题
 		if err != nil {
 			log.Errorf("retryGetBasic Request failed: %s", err.Error())
 			return nil, err
 		}
 
-		bytes, err := io.ReadAll(resp.Body)
-		if err != nil {
-			log.Errorf("retryGetBasic 读取响应体失败: %s", err.Error())
-			return nil, err
-		}
-		if resp.StatusCode >= 400 {
-			err = fmt.Errorf("retryGetBasic Request failed %d, message: %s", resp.StatusCode, string(bytes))
+		if resp.StatusCode >= 500 {
+			err = fmt.Errorf("retryGetBasic Request failed %d", resp.StatusCode)
 			log.Error(err.Error())
 			return nil, err
 		}
+
+		//请求建立没问题,请求构建或者服务端有问题
+		if resp.StatusCode >= 400 {
+			err = fmt.Errorf("retryGetBasic Request failed %d", resp.StatusCode)
+			log.Warn(err.Error())
+			return nil, err
+		}
+
+		// 状态码[200,400),读取响应结构体
+		bytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			log.Warnf("retryGetBasic 读取响应体失败: %s", err.Error())
+		}
+		//解析结构体
 		var respData BrainServiceRetryResp
 		err = json.Unmarshal(bytes, &respData)
 		if err != nil {
 			log.Errorf("retryGetBasic 解析Resp Body失败: %s", err.Error())
-			return nil, err
 		}
 
+		//成功获取到状态，请求没问题
 		if respData.Status != "" {
 
 			if respData.Status == constant.StatusComplete {
 				return &respData, nil
 			}
 
-			err = fmt.Errorf("status: %s,Message:%s", respData.Status, respData.Message)
-			log.Error(err.Error())
-			return nil, err
+			if respData.Status == constant.StatusError {
+				err = fmt.Errorf("status: %s,Message:%s", respData.Status, respData.Message)
+				log.Error(err.Error())
+				return nil, err
+			}
+			if respData.Status == constant.StatusWarning {
+				log.Warnf("status: %s,Message:%s", respData.Status, respData.Message)
+			}
 
 		}
 

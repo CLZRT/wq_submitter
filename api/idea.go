@@ -59,8 +59,9 @@ func GetRunningIdea(ctx *gin.Context) {
 
 func UpdateIdeaConcurrency(ctx *gin.Context) {
 	var ideaRequest UpdateIdeaReq
-	err := ctx.ShouldBind(&ideaRequest)
+	err := ctx.ShouldBindJSON(&ideaRequest)
 	if err != nil {
+		log.Info("bind json err:", err)
 		ideaId, _ := ctx.Get("id")
 		num, _ := ctx.Get("num")
 		params := fmt.Sprintf("ideaId: %s - concurrencyNum: %s", ideaId.(string), num.(string))
@@ -114,9 +115,11 @@ func UpdateIdeaConcurrency(ctx *gin.Context) {
 
 // 根据Idea ID删除Idea,并且关闭其运行池，删除其alphaList
 func DeleteIdea(ctx *gin.Context) {
+
 	req := DeleteIdeaReq{}
-	err := ctx.ShouldBind(&req)
+	err := ctx.ShouldBindJSON(&req)
 	if err != nil {
+		log.Info("bind json err:", err)
 		ctx.JSON(http.StatusBadRequest, DeleteIdeaResp{
 			Message: "Bad Param",
 			Idea:    viewer.Idea{},
