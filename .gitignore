@@ -9,7 +9,7 @@ json
 sql/other.sql
 sql/select.sql
 
-
+./wq_submitter
 # 忽略特定文件类型
 *.DS_Store # macOS 系统文件
 Thumbs.db # Windows 系统文件

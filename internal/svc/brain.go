@@ -371,8 +371,6 @@ func (brainSvc *BrainService) retryGetBasic(req *http.Request, retrySecond float
 			return nil, err
 		}
 
-		//todo 先判断是不是 碰到并发墙了,是的话,等待一段时间后再重新提交即可（simulation）。直到其返回结果不为 碰到并发墙（两个状态码其中一个）
-		//todo 我也不确定 结果是在，是不是这里获取结果这里，还是在上面提交simulate那里，但重新提交的逻辑只能是那里了
 		if resp.StatusCode >= 500 {
 			err = fmt.Errorf("retryGetBasic Request failed %d", resp.StatusCode)
 			log.Error(err.Error())
