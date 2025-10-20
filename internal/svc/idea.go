@@ -62,13 +62,11 @@ func TxUploadIdea(ideaViewer *viewer.Idea, tx *gorm.DB) (ideaId int64, err error
 	return ideaId, nil
 }
 
-func UpdateIdea(ideaViewer *viewer.Idea) (int64, error) {
+func UpdateIdeaConcurrencyNum(ideaId int64, concurrencyNum int64) (int64, error) {
 
-	ideaModel := model.Idea{}
-	ideaModel.ID = ideaViewer.ID
-	ideaModel.ConcurrencyNum = ideaViewer.ConcurrencyNum
-
-	ideaId, err := ideaRepo.Update(context.Background(), &ideaModel)
+	err := ideaRepo.UpdateFields(context.Background(), ideaId, map[string]interface{}{
+		"concurrency_num": concurrencyNum,
+	})
 	if err != nil {
 		log.Error(err.Error())
 		return -1, err

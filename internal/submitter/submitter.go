@@ -323,7 +323,6 @@ func (s *Submitter) executeAlpha(ctx context.Context) {
 			s.executeTask(alphaTask, brainSvc)
 		case <-ctx.Done():
 			return
-
 		}
 
 	}

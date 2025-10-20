@@ -68,6 +68,13 @@ func (brainSvc *BrainService) SimulateAndStoreResult(alpha BrainServiceAlpha) er
 	//模拟
 	simulateResp, err := brainSvc.simulate(alpha.SimulationData)
 
+	// 是并发错误，重试
+	for err != nil && strings.Contains(err.Error(), "CONCURRENT_SIMULATION_LIMIT_EXCEEDED") {
+		time.Sleep(30 * time.Second)
+		simulateResp, err = brainSvc.simulate(alpha.SimulationData)
+	}
+
+	//非并发错误,直接退出
 	if err != nil {
 		log.Errorf("simulate Failed {%s}", err.Error())
 		return err
@@ -364,6 +371,8 @@ func (brainSvc *BrainService) retryGetBasic(req *http.Request, retrySecond float
 			return nil, err
 		}
 
+		//todo 先判断是不是 碰到并发墙了,是的话,等待一段时间后再重新提交即可（simulation）。直到其返回结果不为 碰到并发墙（两个状态码其中一个）
+		//todo 我也不确定 结果是在，是不是这里获取结果这里，还是在上面提交simulate那里，但重新提交的逻辑只能是那里了
 		if resp.StatusCode >= 500 {
 			err = fmt.Errorf("retryGetBasic Request failed %d", resp.StatusCode)
 			log.Error(err.Error())
@@ -401,8 +410,10 @@ func (brainSvc *BrainService) retryGetBasic(req *http.Request, retrySecond float
 				log.Error(err.Error())
 				return nil, err
 			}
+
 			if respData.Status == constant.StatusWarning {
 				log.Warnf("status: %s,Message:%s", respData.Status, respData.Message)
+				return &respData, nil
 			}
 
 		}

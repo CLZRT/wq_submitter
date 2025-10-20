@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"fmt"
 	"github.com/gin-gonic/gin"
 	log "github.com/sirupsen/logrus"
@@ -84,17 +83,9 @@ func UpdateIdeaConcurrency(ctx *gin.Context) {
 		return
 	}
 
-	ideaViewer := &viewer.Idea{}
-	ideaViewer.ID = ideaRequest.Id
-	ideaViewer.ConcurrencyNum = ideaRequest.ConcurrencyNum
-	ideaViewerByte, err := json.Marshal(ideaViewer)
+	log.Infof("Change Concurrency IdeaId: %d; ConcurrencyNum: %d ", ideaRequest.Id, ideaRequest.ConcurrencyNum)
 
-	if err != nil {
-		log.Error(err)
-	}
-	log.Infof("Change Concurrency %s ", string(ideaViewerByte))
-
-	ideaId, err := svc.UpdateIdea(ideaViewer)
+	ideaId, err := svc.UpdateIdeaConcurrencyNum(ideaRequest.Id, ideaRequest.ConcurrencyNum)
 	if err != nil {
 		log.Error(err)
 		ctx.JSON(http.StatusBadGateway, UpdateIdeaResp{
