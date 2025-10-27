@@ -22,6 +22,7 @@ type AlphaTask struct {
 	SimulationData json.RawMessage
 	RetryNum       int64
 	Status         int64
+	AlphaCode      string
 }
 type SafeChan struct {
 	alphaTaskChan chan AlphaTask
@@ -67,6 +68,7 @@ func (safeChan *SafeChan) GetReadChan() <-chan AlphaTask {
 type Submitter struct {
 	context        context.Context
 	cancelFunc     context.CancelFunc
+	brainSvc       *svc.BrainService
 	ScanIdeaSecond int64
 	AlphaChan      SafeChan
 	DeadChan       SafeChan
@@ -76,12 +78,10 @@ type Submitter struct {
 	ChannelLen     int64
 	Idea           viewer.Idea
 	NextScanId     atomic.Int64
-	scanIdMutex    sync.Mutex
 	IdeaNextId     int64
 	WorkerPool     *ants.Pool
 	CancelFuncList []context.CancelFunc
 	mutex          sync.Mutex
-	once           sync.Once
 }
 
 func NewSubmitter(ctx context.Context, cancelFunc context.CancelFunc, idea viewer.Idea) *Submitter {
@@ -95,6 +95,7 @@ func NewSubmitter(ctx context.Context, cancelFunc context.CancelFunc, idea viewe
 	submitter := &Submitter{
 		context:        ctx,
 		cancelFunc:     cancelFunc,
+		brainSvc:       svc.NewBrainService(),
 		ScanIdeaSecond: conf.AlphaConfig.ScanIdeaSecond,
 		AlphaChan:      NewSafeChan(channelLen),
 		DeadChan:       NewSafeChan(channelLen),
@@ -145,12 +146,6 @@ func (s *Submitter) Run() bool {
 		log.Errorf("submit scanIdea err: %s", err.Error())
 		return false
 	}
-
-	err = s.WorkerPool.Submit(s.updateNextId)
-	if err != nil {
-		log.Errorf("submit updateNextId err: %s", err.Error())
-		return false
-	}
 	return true
 
 }
@@ -174,12 +169,22 @@ func (s *Submitter) Stop() error {
 
 func (s *Submitter) initLoadAlpha() {
 
-	alphas, err := s.batchGetAlphaById(s.NextScanId.Load(), s.ChannelLen)
-	s.NextScanId.Add(int64(len(alphas)))
+	startId := s.NextScanId.Load()
+	batchSize := s.ChannelLen
+
+	//计算下一次扫描的开始id
+	nextScanStartId := startId + batchSize
+	if nextScanStartId > s.Idea.EndIdx+1 {
+		nextScanStartId = s.Idea.EndIdx + 1
+	}
+	//根据批次获取对应alpha
+	alphas, err := s.batchGetAlphaById(startId, batchSize)
+
 	if err != nil {
 		log.Error(err.Error())
 	}
-
+	s.NextScanId.Store(nextScanStartId)
+	log.Infof("IdeaId: %d, initLoadAlpha: Scanned range [%d, %d), found %d alphas. Next scan will start from %d.", s.Idea.ID, startId, nextScanStartId-1, len(alphas), nextScanStartId)
 	for _, alpha := range alphas {
 		alphaTask := AlphaTask{
 			ID:             alpha.ID,
@@ -223,58 +228,76 @@ func (s *Submitter) retryAlpha() {
 
 }
 func (s *Submitter) afterAlphaFinish() {
-	for alphaTask := range s.FinishChan.GetReadChan() {
-		s.updateIdeaStatus(alphaTask)
-		s.updateAlphaStatus(alphaTask.ID, alphaTask.Status)
-
-		//获取新alpha 并写入 alphaChan
-		//判断 要获取的alphaId是否超过当前Idea的范围
-		//加载下一个要扫描的新Alpha,并更新nextScanId+1
-		for scanId := s.loadNum(&s.NextScanId); scanId <= s.Idea.EndIdx; scanId++ {
-			alpha := s.getAlphaById(scanId)
-			var newAlphaTask AlphaTask
-			if alpha != nil {
-				newAlphaTask = AlphaTask{
-					ID:             alpha.ID,
-					IdeaID:         alpha.IdeaID,
-					SimulationData: alpha.SimulationData,
-					RetryNum:       0,
-					Status:         alpha.IsSubmitted,
-				}
-				s.AlphaChan.Write(newAlphaTask)
-				s.setNum(&s.NextScanId, scanId)
-				break
-			}
-		}
-
-	}
-}
-func (s *Submitter) updateNextId() {
-	ticker := time.NewTicker(time.Second)
+	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
-	for range ticker.C {
 
-		idea := svc.GetIdeaById(s.Idea.ID)
-		// 更新已经完成的alpha
-		if s.getAlphaById(idea.NextIdx) == nil && idea.NextIdx <= idea.EndIdx {
-			idea.NextIdx++
-			err := svc.UpdateIdeaNextIdx(idea.ID, idea.NextIdx)
-			if err != nil {
-				log.Errorf("update nextIdx failed in updateNextId %s", err.Error())
+	for {
+		select {
+		case alphaTask, ok := <-s.FinishChan.GetReadChan():
+			if !ok {
+				// Channel 关闭，goroutine 退出
+				return
 			}
+			if alphaTask.Status == constant.Submitted {
+				isOk, err := s.brainSvc.AddAlphaTag(alphaTask.AlphaCode, []string{s.Idea.IdeaTitle})
+				if !isOk || err != nil {
+					log.Errorf("afterAlphaFinish: AddAlphaTag in %s Failed. %v", alphaTask.AlphaCode, err)
+				} else {
+					log.Infof("afterAlphaFinish: AddAlphaTag in %s Success.", alphaTask.AlphaCode)
+				}
 
-			//如果要运行的下个关于该Idea的AlphaId 大于该Idea的最后一个 alphaId,更新 isFinished状态
-			if idea.NextIdx > idea.EndIdx {
-				err := svc.UpdateIdeaIsFinished(idea.ID, constant.Finished)
+			}
+			s.updateIdeaStatus(alphaTask)
+			s.updateAlphaStatus(alphaTask.ID, alphaTask.Status)
+
+			//获取新alpha 并写入 alphaChan
+			//判断 要获取的alphaId是否超过当前Idea的范围
+			//加载下一个要扫描的新Alpha,并更新nextScanId+1
+			for {
+
+				//从全局的NextScanId 获取要扫描的ID
+				scanId := s.NextScanId.Load()
+				//检查该Idea是否扫描完成
+				if scanId > s.Idea.EndIdx {
+					log.Infof("IdeaId: %d, All alphas have been scanned. No more tasks to add.", s.Idea.ID)
+					break // 退出查找循环
+				}
+
+				//尝试获取alpha,无论是否找到都往前挪一位
+				alpha := s.getAlphaById(scanId)
+				s.NextScanId.Store(scanId + 1)
+
+				if alpha != nil {
+
+					newAlphaTask := AlphaTask{
+						ID:             alpha.ID,
+						IdeaID:         alpha.IdeaID,
+						SimulationData: alpha.SimulationData,
+						RetryNum:       0,
+						Status:         alpha.IsSubmitted,
+					}
+					s.AlphaChan.Write(newAlphaTask)
+					log.Infof("IdeaId: %d, Task %d finished, new task %d added. Next scan will start from %d.", s.Idea.ID, alphaTask.ID, alpha.ID, scanId+1)
+
+					// 成功补充了一个任务，就可以退出查找循环了
+					break
+				}
+			}
+		case <-ticker.C:
+			currentScanId := s.NextScanId.Load()
+			// 只有在进度推进了的情况下才更新数据库，避免无效写入
+			if currentScanId > s.IdeaNextId {
+				err := svc.UpdateIdeaNextIdx(s.Idea.ID, currentScanId)
 				if err != nil {
-					log.Errorf("Error in updateIdeaIsFinished: %s", err.Error())
+					log.Errorf("Failed to update IdeaNextIdx to %d: %v", currentScanId, err)
+				} else {
+					log.Infof("Successfully updated IdeaNextIdx to %d", currentScanId)
+					s.IdeaNextId = currentScanId // 更新内存中的旧值
 				}
 			}
 		}
-		s.Idea = idea
-		s.IdeaNextId = idea.NextIdx
-
 	}
+
 }
 
 // 改变并发
@@ -312,16 +335,21 @@ func (s *Submitter) shrinkWorker(shrinkNum int64) {
 
 // 提交alpha
 func (s *Submitter) executeAlpha(ctx context.Context) {
-	brainSvc := svc.NewBrainService()
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-	for range ticker.C {
+
+	for {
 		select {
-		case retryTask := <-s.RetryChan.GetReadChan():
-			s.executeTask(retryTask, brainSvc)
-		case alphaTask := <-s.AlphaChan.GetReadChan():
-			s.executeTask(alphaTask, brainSvc)
+		case retryTask, ok := <-s.RetryChan.GetReadChan():
+			if !ok {
+				continue
+			}
+			s.executeTask(retryTask, s.brainSvc)
+		case alphaTask, ok := <-s.AlphaChan.GetReadChan():
+			if !ok {
+				continue
+			}
+			s.executeTask(alphaTask, s.brainSvc)
 		case <-ctx.Done():
+			log.Infof("executeAlpha worker received stop signal, exiting.")
 			return
 		}
 
@@ -334,7 +362,7 @@ func (s *Submitter) executeTask(task AlphaTask, brainSvc *svc.BrainService) {
 	brainSvcAlpha.Id = task.ID
 	brainSvcAlpha.IdeaId = task.IdeaID
 	brainSvcAlpha.SimulationData = string(task.SimulationData)
-	err := brainSvc.SimulateAndStoreResult(brainSvcAlpha)
+	alphaCode, err := brainSvc.SimulateAndStoreResult(brainSvcAlpha)
 
 	if err != nil {
 		log.Errorf("IdeaId: %d BrainServiceAlpha task %d simulation failed: %v", task.IdeaID, task.ID, err)
@@ -343,6 +371,7 @@ func (s *Submitter) executeTask(task AlphaTask, brainSvc *svc.BrainService) {
 	}
 	// 提交成功
 	task.Status = constant.Submitted
+	task.AlphaCode = alphaCode
 	s.FinishChan.Write(task)
 
 }
@@ -357,10 +386,6 @@ func (s *Submitter) batchGetAlphaById(alphaId int64, batchNum int64) ([]*viewer.
 		err := fmt.Errorf("batch num less than 1,it should be greater than 1 or equal 1")
 		return nil, err
 	}
-	if alphaId < s.IdeaNextId {
-		err := fmt.Errorf("alphaId less than 1,it should be greater than %d", s.IdeaNextId)
-		return nil, err
-	}
 
 	startIdx, endIdx := alphaId, alphaId+batchNum-1
 	if endIdx >= s.Idea.EndIdx {
@@ -371,14 +396,9 @@ func (s *Submitter) batchGetAlphaById(alphaId int64, batchNum int64) ([]*viewer.
 	batchNum = endIdx - startIdx + 1
 
 	//在界限内取固定个alpha
-	for i, k := int64(0), startIdx; i < batchNum; i++ {
-		for ; k <= s.Idea.EndIdx; k++ {
-
-			if alpha := s.getAlphaById(k); alpha != nil {
-				alphaList = append(alphaList, alpha)
-				k++
-				break
-			}
+	for k := startIdx; k <= endIdx; k++ {
+		if alpha := s.getAlphaById(k); alpha != nil {
+			alphaList = append(alphaList, alpha)
 		}
 	}
 
@@ -412,15 +432,4 @@ func (s *Submitter) updateAlphaStatus(alphaId int64, alphaStatus int64) {
 		log.Errorf("Error in updateAlphaStatus: %s", err.Error())
 		return
 	}
-}
-func (s *Submitter) loadNum(num *atomic.Int64) int64 {
-	s.scanIdMutex.Lock()
-	defer s.scanIdMutex.Unlock()
-	result := num.Load()
-	return result
-}
-func (s *Submitter) setNum(numAtomic *atomic.Int64, num int64) {
-	s.scanIdMutex.Lock()
-	defer s.scanIdMutex.Unlock()
-	numAtomic.Store(num)
 }

@@ -1,10 +1,12 @@
 package svc
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	log "github.com/sirupsen/logrus"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"strconv"
 	"strings"
@@ -53,6 +55,10 @@ type BrainServiceRetryResp struct {
 	Message string `json:"message"`
 }
 
+type BrainServiceAddTag struct {
+	Color string   `json:"color,omitempty"`
+	Tags  []string `json:"tags,omitempty"`
+}
 type BrainService struct {
 	brainAuth *auth.BrainAuth
 }
@@ -63,11 +69,53 @@ func NewBrainService() *BrainService {
 		brainAuth: brainAuth,
 	}
 }
+func (brainSvc *BrainService) AddAlphaTag(alphaCode string, tags []string) (bool, error) {
+	url := fmt.Sprintf("https://api.worldquantbrain.com/alphas/%s", alphaCode)
 
-func (brainSvc *BrainService) SimulateAndStoreResult(alpha BrainServiceAlpha) error {
+	//1.序列化结构体
+	patchJson, err := json.Marshal(BrainServiceAddTag{Tags: tags})
+	if err != nil {
+		log.Errorf("addAlphaTag:解析Tag失败 [%v]", err)
+		return false, fmt.Errorf("无法序列化payload: %w", err)
+	}
+
+	// 2.创建请求,并设置请求头
+	req, err := http.NewRequest("PATCH", url, bytes.NewBuffer(patchJson))
+	if err != nil {
+		log.Errorf("addAlphaTag:组装request失败 [%v]", err)
+		return false, fmt.Errorf("无法创建request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := brainSvc.brainAuth.HttpClient.Do(req)
+	for resp == nil {
+		resp, err = brainSvc.brainAuth.HttpClient.Do(req)
+		time.Sleep(10 * time.Second)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+
+		bodyBytes, readErr := ioutil.ReadAll(resp.Body) // Go 1.16+ 使用 io.ReadAll
+		if readErr != nil {
+			log.Errorf("AddAlphaTag: 更新alpha %s 失败，状态码: %d, 并且无法读取响应体: %v", alphaCode, resp.StatusCode, readErr)
+			return false, fmt.Errorf("API返回错误状态: %s", resp.Status)
+		}
+
+		errorMsg := fmt.Sprintf("API返回错误状态: %s, 响应: %s", resp.Status, string(bodyBytes))
+		log.Errorf("AddAlphaTag: 更新alpha %s 失败。%s", alphaCode, errorMsg)
+		return false, fmt.Errorf(errorMsg)
+	}
+	log.Infof("addAlphaTag:更新alpha: %s 成功", alphaCode)
+	return true, nil
+}
+func (brainSvc *BrainService) SimulateAndStoreResult(alpha BrainServiceAlpha) (string, error) {
 	//模拟
 	simulateResp, err := brainSvc.simulate(alpha.SimulationData)
-
+	defer func() {
+		if simulateResp != nil {
+			simulateResp.Body.Close()
+		}
+	}()
 	// 是并发错误，重试
 	for err != nil && strings.Contains(err.Error(), "CONCURRENT_SIMULATION_LIMIT_EXCEEDED") {
 		time.Sleep(30 * time.Second)
@@ -77,31 +125,35 @@ func (brainSvc *BrainService) SimulateAndStoreResult(alpha BrainServiceAlpha) er
 	//非并发错误,直接退出
 	if err != nil {
 		log.Errorf("simulate Failed {%s}", err.Error())
-		return err
+		return "", err
 	}
 
 	//结果
-
 	if conf.ResultConfig.NeedStoreRecords {
 
 		// 获取results
 		alphaResultViewer, err := brainSvc.getResults(alpha, simulateResp)
 		if err != nil {
 			log.Errorf("GetResult failed: %s", err.Error())
-			return err
+			return "", err
 		}
 
 		// 存Results
 		if err = StoreAlphaResult(alphaResultViewer); err != nil {
 			log.Errorf("StoreAlphaResult failed: %s", err.Error())
-			return err
+			return "", err
 		}
+		//返回alphaCode
+		return alphaResultViewer.AlphaCode, nil
 		//	确认提交成功
-	} else if err = brainSvc.confirmResult(simulateResp); err != nil {
-		log.Errorf("ConfirmResult failed: %s", err.Error())
-		return err
+	} else {
+		alphaRes, err := brainSvc.confirmResult(simulateResp)
+		if err != nil {
+			log.Errorf("ConfirmResult failed: %s", err.Error())
+			return "", err
+		}
+		return alphaRes.Alpha, nil
 	}
-	return nil
 
 }
 func (brainSvc *BrainService) simulate(alphaDataStr string) (*http.Response, error) {
@@ -151,27 +203,27 @@ func (brainSvc *BrainService) simulate(alphaDataStr string) (*http.Response, err
 
 }
 
-func (brainSvc *BrainService) confirmResult(resp *http.Response) error {
+func (brainSvc *BrainService) confirmResult(resp *http.Response) (*BrainServiceRetryResp, error) {
 	//构建请求
 	req, err := http.NewRequest("GET", resp.Header.Get("Location"), strings.NewReader(""))
 	if err != nil {
 		log.Errorf("New ConfirmResult Request failed: %s", err.Error())
-		return err
+		return nil, err
 	}
 	// 获取重试时间
 	retrySecond, err := strconv.ParseFloat(resp.Header.Get("Retry-After"), 64)
 	if err != nil {
 		log.Errorf("Parse Retry-After Failed: %s", err.Error())
-		return err
+		return nil, err
 	}
 
 	// 发送请求
-	_, err = brainSvc.retryGetBasic(req, retrySecond)
+	alphaRes, err := brainSvc.retryGetBasic(req, retrySecond)
 	if err != nil {
 		log.Errorf("ConfirmResult failed with message: %s", err.Error())
-		return err
+		return nil, err
 	}
-	return nil
+	return alphaRes, nil
 
 }
 
